@@ -78,8 +78,10 @@ function buildRoom() {
       ground[y][x] = (y === 0 || y === MAP_H-1 || x === 0 || x === MAP_W-1) ? WL : FL;
 
   // Single table in the center: f1 (5,2)-(6,3) = 2×2
+  // Top row is a thin shadow edge — not solid. Bottom row is the table body — solid.
   const tx = Math.floor(MAP_W/2) - 1, ty = Math.floor(MAP_H/2) - 1;
-  place(tx, ty, 'f1', 5, 2, 2, 2, true);
+  place(tx, ty,     'f1', 5, 2, 2, 1, false);
+  place(tx, ty + 1, 'f1', 5, 3, 2, 1, true);
 
   // Solid border
   for (let y = 0; y < MAP_H; y++) { solidMap[y][0] = true; solidMap[y][MAP_W-1] = true; }
