@@ -166,14 +166,37 @@ function drawPlayer(sx, sy) {
     Math.floor(sx - T/2), Math.floor(sy - T/2), T, T);
 }
 
+// --- Audio ---
+// Web Audio API gives truly gapless looping (mp3 loop via <audio> has gaps)
+let audioStarted = false;
+async function startAudio() {
+  if (audioStarted) return;
+  audioStarted = true;
+  const ac = new AudioContext();
+  const gain = ac.createGain();
+  gain.gain.setValueAtTime(0, ac.currentTime);
+  gain.gain.linearRampToValueAtTime(0.6, ac.currentTime + 3);
+  gain.connect(ac.destination);
+  const buf = await fetch('assets/beat210mrgirlfriend.mp3')
+    .then(r => r.arrayBuffer())
+    .then(ab => ac.decodeAudioData(ab));
+  const src = ac.createBufferSource();
+  src.buffer = buf;
+  src.loop = true;
+  src.connect(gain);
+  src.start();
+}
+
 // --- Input ---
 const keys = {};
 window.addEventListener('keydown', e => {
   keys[e.key] = true;
   if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key))
     e.preventDefault();
+  startAudio();
 });
 window.addEventListener('keyup', e => keys[e.key] = false);
+canvas.addEventListener('click', startAudio);
 
 function tryMove(dx, dy) {
   const hw = 5, hh = 5;
