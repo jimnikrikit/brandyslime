@@ -112,21 +112,29 @@ window.addEventListener('keyup', e => { keys[e.key] = false; });
 canvas.addEventListener('click', startAudio);
 
 // --- Audio ---
+// Pre-fetch the buffer immediately (no user gesture needed for fetch)
+const audioBufPromise = fetch('assets/beat210mrgirlfriend.mp3')
+  .then(r => r.arrayBuffer());
+
 let audioStarted = false;
 async function startAudio() {
   if (audioStarted) return;
   audioStarted = true;
-  const ac = new AudioContext();
-  const gain = ac.createGain();
-  gain.gain.setValueAtTime(0, ac.currentTime);
-  gain.gain.linearRampToValueAtTime(0.55, ac.currentTime + 3);
-  gain.connect(ac.destination);
-  const buf = await fetch('assets/beat210mrgirlfriend.mp3')
-    .then(r => r.arrayBuffer())
-    .then(ab => ac.decodeAudioData(ab));
-  const src = ac.createBufferSource();
-  src.buffer = buf; src.loop = true;
-  src.connect(gain); src.start();
+  try {
+    const ac = new AudioContext();
+    await ac.resume();
+    const ab = await audioBufPromise;
+    const buf = await ac.decodeAudioData(ab.slice(0)); // slice so it can be reused on retry
+    const gain = ac.createGain();
+    gain.gain.setValueAtTime(0, ac.currentTime);
+    gain.gain.linearRampToValueAtTime(0.55, ac.currentTime + 3);
+    gain.connect(ac.destination);
+    const src = ac.createBufferSource();
+    src.buffer = buf; src.loop = true;
+    src.connect(gain); src.start();
+  } catch (e) {
+    audioStarted = false; // allow retry on next interaction
+  }
 }
 
 // --- Collision ---
