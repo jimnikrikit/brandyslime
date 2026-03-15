@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>brandyslime</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #111; display: flex; justify-content: center; align-items: center; height: 100vh; }
+    canvas { image-rendering: pixelated; }
+  </style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+const SCALE = 3;
+const TILE = 16;
+const VIEW_W = 16; // tiles visible
+const VIEW_H = 12;
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+canvas.width  = VIEW_W * TILE * SCALE;
+canvas.height = VIEW_H * TILE * SCALE;
+ctx.scale(SCALE, SCALE);
+
+// --- World map (0=grass, 1=dirt path, 2=water, 3=tree) ---
+const W = 40, H = 40;
+const map = Array.from({length: H}, (_, y) =>
+  Array.from({length: W}, (_, x) => {
+    if (x === 0 || y === 0 || x === W-1 || y === H-1) return 3;
+    if ((x === 8 || x === 9) && y > 2 && y < 20) return 1;
+    if (y === 10 && x > 4 && x < 20) return 1;
+    if (x > 18 && x < 25 && y > 5 && y < 9) return 2;
+    if ((x === 12 || x === 13) && (y === 4 || y === 5)) return 3;
+    if (x === 30 && y === 20) return 3;
+    return 0;
+  })
+);
+
+const TILE_COLORS = {
+  0: ['#4a7c3f', '#3d6b34', '#56904a'], // grass variants
+  1: ['#8b6914', '#7a5e12', '#9b7818'], // dirt
+  2: ['#2255aa', '#1a4499', '#2a66bb'], // water
+  3: ['#2d5a1b', '#264f17', '#1a3a10'], // tree
+};
+
+function drawTile(x, y, type) {
+  const px = x * TILE, py = y * TILE;
+  // base color (vary by position for texture)
+  const variants = TILE_COLORS[type];
+  const v = (x * 3 + y * 7) % variants.length;
+  ctx.fillStyle = variants[v];
+  ctx.fillRect(px, py, TILE, TILE);
+
+  if (type === 0) {
+    // grass detail
+    ctx.fillStyle = '#5a9040';
+    if ((x + y) % 4 === 0) ctx.fillRect(px+3, py+5, 1, 3);
+    if ((x * 2 + y) % 5 === 0) ctx.fillRect(px+9, py+2, 1, 3);
+  }
+  if (type === 2) {
+    // water shimmer
+    ctx.fillStyle = '#4488dd44';
+    ctx.fillRect(px+1, py+6, 6, 2);
+    ctx.fillRect(px+9, py+11, 5, 2);
+  }
+  if (type === 3) {
+    // tree trunk + canopy
+    ctx.fillStyle = '#5c3a1e';
+    ctx.fillRect(px+6, py+10, 4, 6);
+    ctx.fillStyle = '#2a6e18';
+    ctx.fillRect(px+2, py+2, 12, 10);
+    ctx.fillStyle = '#3a8a22';
+    ctx.fillRect(px+4, py+1, 8, 4);
+  }
+}
+
+// --- Player ---
+const player = {
+  // world position in pixels
+  x: 9 * TILE + 4,
+  y: 5 * TILE + 4,
+  dir: 2, // 0=up 1=right 2=down 3=left
+  frame: 0,
+  frameTimer: 0,
+  moving: false,
+  speed: 1.2,
+};
+
+const FRAME_RATE = 10; // frames per update tick
+
+// Simple drawn character: 12x16px overhead RPG style
+// Colors: skin, hair, shirt, pants
+const CHAR = {
+  skin: '#f5c98a',
+  hair: '#4a2c0a',
+  shirt: '#cc4444',
+  pants: '#334488',
+  outline: '#2a1a0a',
+};
+
+function drawCharacter(cx, cy, dir, frame) {
+  const f = frame % 2; // 2-frame walk cycle
+  const bob = (frame % 4 < 2) ? 0 : 1; // vertical bob
+
+  ctx.save();
+  ctx.translate(Math.floor(cx), Math.floor(cy) + (player.moving ? bob : 0));
+
+  const s = CHAR;
+
+  if (dir === 2) { // down
+    // pants
+    ctx.fillStyle = s.pants;
+    ctx.fillRect(-4, 4, 3, 6);
+    ctx.fillRect(1, 4, 3, 6);
+    // shirt
+    ctx.fillStyle = s.shirt;
+    ctx.fillRect(-4, -2, 8, 7);
+    // arms (swinging)
+    ctx.fillStyle = s.skin;
+    ctx.fillRect(f === 0 ? -6 : -5, 0, 2, 4);
+    ctx.fillRect(f === 0 ? 4 : 3, 0, 2, 4);
+    // head
+    ctx.fillStyle = s.skin;
+    ctx.fillRect(-4, -8, 8, 7);
+    // hair
+    ctx.fillStyle = s.hair;
+    ctx.fillRect(-4, -8, 8, 3);
+    // eyes
+    ctx.fillStyle = '#333';
+    ctx.fillRect(-2, -4, 1, 1);
+    ctx.fillRect(1, -4, 1, 1);
+  } else if (dir === 0) { // up
+    ctx.fillStyle = s.pants;
+    ctx.fillRect(-4, 4, 3, 6);
+    ctx.fillRect(1, 4, 3, 6);
+    ctx.fillStyle = s.shirt;
+    ctx.fillRect(-4, -2, 8, 7);
+    ctx.fillStyle = s.skin;
+    ctx.fillRect(f === 0 ? -6 : -5, 0, 2, 4);
+    ctx.fillRect(f === 0 ? 4 : 3, 0, 2, 4);
+    ctx.fillStyle = s.skin;
+    ctx.fillRect(-4, -8, 8, 7);
+    ctx.fillStyle = s.hair;
+    ctx.fillRect(-4, -8, 8, 5); // more hair from behind
+  } else if (dir === 1) { // right
+    ctx.fillStyle = s.pants;
+    ctx.fillRect(-2, 4, 4, 6);
+    ctx.fillStyle = s.shirt;
+    ctx.fillRect(-3, -2, 7, 7);
+    // swinging arm
+    ctx.fillStyle = s.skin;
+    ctx.fillRect(3, f === 0 ? 1 : 2, 2, 4);
+    ctx.fillStyle = s.skin;
+    ctx.fillRect(-3, -8, 7, 7);
+    ctx.fillStyle = s.hair;
+    ctx.fillRect(-3, -8, 7, 3);
+    ctx.fillRect(3, -8, 2, 6); // side hair
+    ctx.fillStyle = '#333';
+    ctx.fillRect(2, -4, 1, 1);
+  } else { // left
+    ctx.fillStyle = s.pants;
+    ctx.fillRect(-2, 4, 4, 6);
+    ctx.fillStyle = s.shirt;
+    ctx.fillRect(-4, -2, 7, 7);
+    ctx.fillStyle = s.skin;
+    ctx.fillRect(-5, f === 0 ? 1 : 2, 2, 4);
+    ctx.fillStyle = s.skin;
+    ctx.fillRect(-4, -8, 7, 7);
+    ctx.fillStyle = s.hair;
+    ctx.fillRect(-4, -8, 7, 3);
+    ctx.fillRect(-5, -8, 2, 6);
+    ctx.fillStyle = '#333';
+    ctx.fillRect(-3, -4, 1, 1);
+  }
+
+  ctx.restore();
+}
+
+// --- Input ---
+const keys = {};
+window.addEventListener('keydown', e => { keys[e.key] = true; e.preventDefault(); });
+window.addEventListener('keyup',   e => { keys[e.key] = false; });
+
+function isSolid(px, py) {
+  const tx = Math.floor(px / TILE);
+  const ty = Math.floor(py / TILE);
+  if (tx < 0 || ty < 0 || tx >= W || ty >= H) return true;
+  const t = map[ty][tx];
+  return t === 3 || t === 2;
+}
+
+function tryMove(dx, dy) {
+  const hw = 4, hh = 4; // half-width/height of collision box
+  const nx = player.x + dx;
+  const ny = player.y + dy;
+  const corners = [
+    [nx - hw, ny - hh], [nx + hw, ny - hh],
+    [nx - hw, ny + hh], [nx + hw, ny + hh],
+  ];
+  if (!corners.some(([cx, cy]) => isSolid(cx, cy))) {
+    player.x = nx;
+    player.y = ny;
+    return true;
+  }
+  return false;
+}
+
+// --- Camera ---
+function getCamera() {
+  const vw = VIEW_W * TILE, vh = VIEW_H * TILE;
+  let cx = player.x - vw / 2;
+  let cy = player.y - vh / 2;
+  cx = Math.max(0, Math.min(W * TILE - vw, cx));
+  cy = Math.max(0, Math.min(H * TILE - vh, cy));
+  return { x: cx, y: cy };
+}
+
+// --- Game loop ---
+let lastTime = 0;
+function loop(ts) {
+  const dt = ts - lastTime;
+  lastTime = ts;
+
+  // Input
+  let dx = 0, dy = 0;
+  if (keys['ArrowUp']    || keys['w']) { dy = -player.speed; player.dir = 0; }
+  if (keys['ArrowDown']  || keys['s']) { dy =  player.speed; player.dir = 2; }
+  if (keys['ArrowLeft']  || keys['a']) { dx = -player.speed; player.dir = 3; }
+  if (keys['ArrowRight'] || keys['d']) { dx =  player.speed; player.dir = 1; }
+
+  // Normalize diagonal
+  if (dx !== 0 && dy !== 0) { dx *= 0.707; dy *= 0.707; }
+
+  player.moving = dx !== 0 || dy !== 0;
+
+  if (player.moving) {
+    tryMove(dx, 0);
+    tryMove(0, dy);
+    player.frameTimer++;
+    if (player.frameTimer >= FRAME_RATE) {
+      player.frame++;
+      player.frameTimer = 0;
+    }
+  } else {
+    player.frame = 0;
+    player.frameTimer = 0;
+  }
+
+  // Draw
+  const cam = getCamera();
+  ctx.clearRect(0, 0, VIEW_W * TILE, VIEW_H * TILE);
+
+  // Tiles
+  const startX = Math.floor(cam.x / TILE);
+  const startY = Math.floor(cam.y / TILE);
+  for (let ty = startY; ty <= startY + VIEW_H + 1; ty++) {
+    for (let tx = startX; tx <= startX + VIEW_W + 1; tx++) {
+      if (tx < 0 || ty < 0 || tx >= W || ty >= H) continue;
+      drawTile(tx - startX + (startX * TILE - cam.x) / TILE,
+               ty - startY + (startY * TILE - cam.y) / TILE,
+               map[ty][tx]);
+    }
+  }
+
+  // Player (centered in view minus camera offset)
+  const screenX = player.x - cam.x;
+  const screenY = player.y - cam.y;
+  drawCharacter(screenX, screenY, player.dir, player.frame);
+
+  requestAnimationFrame(loop);
+}
+
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
