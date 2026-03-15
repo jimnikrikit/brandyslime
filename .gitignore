@@ -1,12 +1,4 @@
 .venv/
 
 # analysis/debug images
-assets/*_grid.png
-assets/*_zoom.png
-assets/*_labeled.png
-assets/*_big.png
-assets/*_candidates.png
-assets/house_tiles.png
-assets/tree_tiles.png
-assets/small_house.png
-assets/floor_candidates.png
+assets/_*
