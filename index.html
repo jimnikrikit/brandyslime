@@ -52,7 +52,7 @@ const decor    = Array.from({length: MAP_H}, () => Array(MAP_W).fill(null));
 const solidMap = Array.from({length: MAP_H}, () => Array(MAP_W).fill(false));
 
 const FL = ['fw', 14, 6]; // orange checker floor
-const WL = ['fw', 10, 2]; // cream wall/wallpaper
+const WL = null;           // walls = dark background (no tile drawn)
 
 function solidAt(x, y) {
   if (x < 0 || y < 0 || x >= MAP_W || y >= MAP_H) return true;
@@ -73,10 +73,13 @@ function place(wx, wy, sheet, sc, sr, w, h, isSolid = true) {
 }
 
 function buildRoom() {
-  // Ground: cream walls at border, checker floor everywhere else
   for (let y = 0; y < MAP_H; y++)
     for (let x = 0; x < MAP_W; x++)
       ground[y][x] = (y === 0 || y === MAP_H-1 || x === 0 || x === MAP_W-1) ? WL : FL;
+
+  // Single table in the center: f1 (5,0)-(6,2) = 2×3
+  const tx = Math.floor(MAP_W/2) - 1, ty = Math.floor(MAP_H/2) - 1;
+  place(tx, ty, 'f1', 5, 0, 2, 3, false);
 
   // Solid border
   for (let y = 0; y < MAP_H; y++) { solidMap[y][0] = true; solidMap[y][MAP_W-1] = true; }
