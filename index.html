@@ -5,169 +5,179 @@
   <title>brandyslime</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { background: #111; display: flex; justify-content: center; align-items: center; height: 100vh; }
+    body { background: #1a0e08; display: flex; justify-content: center; align-items: center; height: 100vh; }
     canvas { image-rendering: pixelated; }
   </style>
 </head>
 <body>
 <canvas id="c"></canvas>
 <script>
-const T = 16;       // tile size in source pixels
-const SCALE = 3;
-const VIEW_W = 20;  // tiles visible
-const VIEW_H = 14;
-const MAP_W  = 42;
-const MAP_H  = 28;
+const T = 16, SCALE = 3;
+const MAP_W = 18, MAP_H = 16;
 
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
-canvas.width  = VIEW_W * T * SCALE;
-canvas.height = VIEW_H * T * SCALE;
+canvas.width  = MAP_W * T * SCALE;
+canvas.height = MAP_H * T * SCALE;
 ctx.scale(SCALE, SCALE);
 ctx.imageSmoothingEnabled = false;
 
-// --- Load assets ---
+// --- Assets ---
 const imgs = {};
 let loaded = 0;
-function loadImg(key, src) {
+const SRCS = {
+  fw:   'assets/TopDownHouse_FloorsAndWalls.png',
+  f1:   'assets/TopDownHouse_FurnitureState1.png',
+  dw:   'assets/TopDownHouse_DoorsAndWindows.png',
+  si:   'assets/TopDownHouse_SmallItems.png',
+  char: 'assets/ninja_blue.png',
+};
+for (const [key, src] of Object.entries(SRCS)) {
   const img = new Image();
-  img.onload = () => { imgs[key] = img; loaded++; if (loaded === 3) init(); };
+  img.onload = () => { if (++loaded === Object.keys(SRCS).length) init(); };
   img.src = src;
+  imgs[key] = img;
 }
-loadImg('floor',   'assets/tileset_floor.png');
-loadImg('village', 'assets/tileset_village_abandoned.png');
-loadImg('char',    'assets/ninja_blue.png');
 
-// --- Tile helpers ---
-// tile(sheet, col, row) → draws one tile at canvas position (dx,dy)
 function blit(sheet, sc, sr, dx, dy) {
-  ctx.drawImage(imgs[sheet], sc*T, sr*T, T, T, dx, dy, T, T);
+  ctx.drawImage(imgs[sheet], sc*T, sr*T, T, T, Math.floor(dx), Math.floor(dy), T, T);
 }
 
 // --- Map layers ---
-// groundLayer[y][x] = [sheet, col, row]
-// objLayer[y][x]    = [sheet, col, row, solid] or null
-const groundLayer = Array.from({length: MAP_H}, () => Array(MAP_W).fill(null));
-const objLayer    = Array.from({length: MAP_H}, () => Array(MAP_W).fill(null));
+// ground[y][x] = [sheet, col, row]
+// decor[y][x]  = [sheet, col, row] — drawn above floor, below player (y-sorted)
+// solidMap[y][x] = bool
+const ground   = Array.from({length: MAP_H}, () => Array(MAP_W).fill(null));
+const decor    = Array.from({length: MAP_H}, () => Array(MAP_W).fill(null));
+const solidMap = Array.from({length: MAP_H}, () => Array(MAP_W).fill(false));
 
-// Ground tile variants for texture
-const GRASS_TILES = [[6,8],[6,9],[6,7],[16,8],[16,9]];
-function grassAt(x, y) {
-  const v = ((x * 7 + y * 13) ^ (x * 3)) & 0xff;
-  // 80% plain, 20% variants
-  return v < 200 ? GRASS_TILES[0] : GRASS_TILES[1 + (v % 4)];
+const FL = ['fw', 14, 6]; // orange checker floor
+const WL = ['fw', 10, 2]; // cream wall/wallpaper
+
+function solidAt(x, y) {
+  if (x < 0 || y < 0 || x >= MAP_W || y >= MAP_H) return true;
+  return solidMap[y][x];
 }
 
-function buildGround() {
-  for (let y = 0; y < MAP_H; y++) {
-    for (let x = 0; x < MAP_W; x++) {
-      const [gc, gr] = grassAt(x, y);
-      groundLayer[y][x] = ['floor', gc, gr];
+// Place a multi-tile sprite from tileset onto the decor + solid layers
+// Tiles are drawn individually per-cell (no single drawImage call needed)
+function place(wx, wy, sheet, sc, sr, w, h, isSolid = true) {
+  for (let dy = 0; dy < h; dy++) {
+    for (let dx = 0; dx < w; dx++) {
+      const gx = wx + dx, gy = wy + dy;
+      if (gx < 0 || gy < 0 || gx >= MAP_W || gy >= MAP_H) continue;
+      decor[gy][gx] = [sheet, sc + dx, sr + dy];
+      if (isSolid) solidMap[gy][gx] = true;
     }
   }
-  // Horizontal dirt path rows 13-14
-  for (let y = 13; y <= 14; y++)
+}
+
+function buildRoom() {
+  // Ground: cream walls at border, checker floor everywhere else
+  for (let y = 0; y < MAP_H; y++)
     for (let x = 0; x < MAP_W; x++)
-      groundLayer[y][x] = ['floor', 3, 8];
-  // Vertical connecting paths (under each house door)
-  const doorCols = [8, 21, 34]; // center col of each house door
-  for (const cx of doorCols)
-    for (let y = 8; y <= 12; y++)
-      groundLayer[y][cx] = ['floor', 3, 8];
-}
+      ground[y][x] = (y === 0 || y === MAP_H-1 || x === 0 || x === MAP_W-1) ? WL : FL;
 
-// Place a large house (5 wide × 4 tall) — tileset cols 11-15, rows 7-10
-// Door at center col (hx+2), walkable row (hy+3), rest solid
-function placeLargeHouse(hx, hy) {
-  const COLS = 5, ROWS = 4;
-  const SRC_COL = 11, SRC_ROW = 7;
-  for (let r = 0; r < ROWS; r++) {
-    for (let c = 0; c < COLS; c++) {
-      const solid = r < 3; // bottom row is decorative face, not solid
-      objLayer[hy + r][hx + c] = ['village', SRC_COL + c, SRC_ROW + r, solid];
-    }
+  // Solid border
+  for (let y = 0; y < MAP_H; y++) { solidMap[y][0] = true; solidMap[y][MAP_W-1] = true; }
+  for (let x = 0; x < MAP_W; x++) { solidMap[0][x] = true; solidMap[MAP_H-1][x] = true; }
+
+  // Door at bottom center — cut hole in wall, place door sprite (2×3)
+  solidMap[MAP_H-1][8] = false;
+  solidMap[MAP_H-1][9] = false;
+  // Door sprite: dw cols 8-9, rows 0-2 (dark brown door facing player)
+  // Place the door at y=13 so the 3 rows go y=13,14,15 - bottom row is threshold on wall
+  place(8, 13, 'dw', 8, 0, 2, 3, false);
+
+  // Windows in top wall: dw (6,3)-(7,4) = 2×2 each
+  place(3, 0, 'dw', 6, 3, 2, 2, true);
+  place(12, 0, 'dw', 6, 3, 2, 2, true);
+
+  // ── KITCHEN ZONE (y=1–4, all solid) ────────────────────────────────
+  // Fridge 2×4: f1 (2,12)-(3,15) at world (1,1)
+  place(1, 1, 'f1', 2, 12, 2, 4, true);
+  // Stove 2×4: f1 (4,12)-(5,15) at world (3,1)
+  place(3, 1, 'f1', 4, 12, 2, 4, true);
+  // Sink 2×3: f1 (6,12)-(7,14) at world (5,1)
+  place(5, 1, 'f1', 6, 12, 2, 3, true);
+  // Counter cabinets (3 tall, 1 wide unit) filling the rest: x=7..16
+  for (let x = 7; x <= 16; x++) place(x, 1, 'f1', 9, 12, 1, 3, true);
+  // One more counter row to fill y=4 gap where fridge/stove extend: x=7..16
+  for (let x = 7; x <= 16; x++) place(x, 4, 'f1', 9, 14, 1, 1, true);
+
+  // Bar counter top (solid row the player stands in front of)
+  // Use the counter baseboard tile as the visible "edge" of the counter (y=5)
+  for (let x = 1; x <= 16; x++) place(x, 5, 'f1', 9, 14, 1, 1, true);
+
+  // Bar stools in front of counter (not solid, decorative) — y=6
+  const stoolX = [2, 4, 7, 10, 13, 15];
+  for (const sx of stoolX) place(sx, 6, 'f1', 5, 2, 2, 2, false); // round ottoman/stool
+
+  // ── BOOTHS (y=8–10) ──────────────────────────────────────────────
+  // Booth bench (sofa facing down) at top of booth: f1 (1,10)-(4,12) = 4×3
+  place(1, 7, 'f1', 1, 10, 4, 3, true);
+  // Table between benches: f1 (5,0)-(6,2) = 2×3
+  place(2, 9, 'f1', 5, 0, 2, 3, false);
+
+  // Second booth cluster (right side)
+  place(10, 7, 'f1', 1, 10, 4, 3, true);
+  place(11, 9, 'f1', 5, 0, 2, 3, false);
+
+  // ── FREE-STANDING TABLES (y=11–13) ──────────────────────────────
+  // Table: f1 (5,0)-(6,2) = 2×3
+  place(3, 11, 'f1', 5, 0, 2, 3, false);
+  place(8, 11, 'f1', 5, 0, 2, 3, false);
+  place(13, 11, 'f1', 5, 0, 2, 3, false);
+
+  // Chairs around tables (f1 row 0-1, individual dining chair)
+  // North of table (facing south toward table): (8,0)+(8,1)
+  for (const tx of [3, 8, 13]) {
+    place(tx,   10, 'f1', 8, 0, 1, 2, false); // chair north of table
+    place(tx+1, 10, 'f1', 9, 0, 1, 2, false);
+    place(tx,   14, 'f1', 10, 0, 1, 2, false); // chair south of table
+    place(tx+1, 14, 'f1', 11, 0, 1, 2, false);
   }
-}
 
-// Place a small house (4 wide × 3 tall) — tileset cols 16-19, rows 7-9
-// Bottom row is walkable face
-function placeSmallHouse(hx, hy) {
-  const COLS = 4, ROWS = 3;
-  const SRC_COL = 16, SRC_ROW = 7;
-  for (let r = 0; r < ROWS; r++) {
-    for (let c = 0; c < COLS; c++) {
-      const solid = r < 2;
-      objLayer[hy + r][hx + c] = ['village', SRC_COL + c, SRC_ROW + r, solid];
-    }
-  }
-}
-
-// Place a big tree (3 wide × 3 tall) — tileset cols 1-3, rows 6-8
-function placeTree(tx, ty) {
-  for (let r = 0; r < 3; r++)
-    for (let c = 0; c < 3; c++)
-      objLayer[ty + r][tx + c] = ['village', 1 + c, 6 + r, true];
-}
-
-function buildObjects() {
-  // Three large houses across the top
-  placeLargeHouse(4,  3);   // house A, door at col 6
-  placeLargeHouse(17, 3);   // house B, door at col 19
-  placeLargeHouse(30, 3);   // house C, door at col 32
-
-  // Small house variation tucked to right side
-  placeSmallHouse(37, 5);
-
-  // Trees along top border
-  for (let x = 0; x < MAP_W - 2; x += 4) placeTree(x, 0);
-  // Trees left border
-  for (let y = 3; y < MAP_H - 3; y += 4) placeTree(0, y);
-  // Trees right border (mind small house)
-  for (let y = 10; y < MAP_H - 3; y += 4) placeTree(MAP_W - 3, y);
-  // Trees bottom border
-  for (let x = 3; x < MAP_W - 3; x += 4) placeTree(x, MAP_H - 3);
-  // Scattered trees
-  placeTree(12, 8);
-  placeTree(26, 9);
-  placeTree(14, 17);
-  placeTree(27, 19);
-  placeTree(5, 20);
-}
-
-// --- Solid tile check ---
-function isSolid(wx, wy) {
-  const tx = Math.floor(wx / T);
-  const ty = Math.floor(wy / T);
-  if (tx < 0 || ty < 0 || tx >= MAP_W || ty >= MAP_H) return true;
-  const obj = objLayer[ty][tx];
-  return obj && obj[3] === true;
+  // ── SMALL DECOR ─────────────────────────────────────────────────
+  // Wall clock: si (5,1) on top wall
+  place(8, 0, 'si', 5, 1, 1, 1, false);
+  // Picture frames on top wall: si (0,1) and (1,1)
+  place(5, 0, 'si', 0, 1, 1, 1, false);
+  place(10, 0, 'si', 1, 1, 1, 1, false);
+  // Plant: f1 (0,10)+(0,11) near door area
+  place(1, 13, 'f1', 0, 10, 1, 2, false);
+  place(16, 13, 'f1', 0, 10, 1, 2, false);
+  // Food/plates on tables: si row 4
+  place(3,  12, 'si', 0, 4, 1, 1, false);
+  place(8,  12, 'si', 1, 4, 1, 1, false);
+  place(13, 12, 'si', 2, 4, 1, 1, false);
 }
 
 // --- Player ---
 const player = {
-  x: 19 * T + 8,  // pixel position (center of tile)
-  y: 17 * T + 8,
-  dir: 0,         // 0=down,1=up,2=left,3=right
-  frame: 0,
-  frameTimer: 0,
-  moving: false,
-  speed: 1.5,
+  x: 9 * T + 8, y: 12 * T + 8,
+  dir: 0, frame: 0, frameTimer: 0, moving: false, speed: 1.5,
 };
+const WALK_FRAMES = 4, FRAME_TICKS = 8;
 
-const WALK_FRAMES = 4;
-const FRAME_TICKS = 8;
-
-// Character sprite: col=direction, row=walk frame (0-3)
 function drawPlayer(sx, sy) {
-  const col = player.dir;    // direction column
+  const col = player.dir;
   const row = player.moving ? player.frame % WALK_FRAMES : 0;
-  ctx.drawImage(imgs['char'],
-    col * T, row * T, T, T,
+  ctx.drawImage(imgs['char'], col*T, row*T, T, T,
     Math.floor(sx - T/2), Math.floor(sy - T/2), T, T);
 }
 
+// --- Input ---
+const keys = {};
+window.addEventListener('keydown', e => {
+  keys[e.key] = true;
+  if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault();
+  startAudio();
+});
+window.addEventListener('keyup', e => { keys[e.key] = false; });
+canvas.addEventListener('click', startAudio);
+
 // --- Audio ---
-// Web Audio API gives truly gapless looping (mp3 loop via <audio> has gaps)
 let audioStarted = false;
 async function startAudio() {
   if (audioStarted) return;
@@ -175,57 +185,33 @@ async function startAudio() {
   const ac = new AudioContext();
   const gain = ac.createGain();
   gain.gain.setValueAtTime(0, ac.currentTime);
-  gain.gain.linearRampToValueAtTime(0.6, ac.currentTime + 3);
+  gain.gain.linearRampToValueAtTime(0.55, ac.currentTime + 3);
   gain.connect(ac.destination);
   const buf = await fetch('assets/beat210mrgirlfriend.mp3')
     .then(r => r.arrayBuffer())
     .then(ab => ac.decodeAudioData(ab));
   const src = ac.createBufferSource();
-  src.buffer = buf;
-  src.loop = true;
-  src.connect(gain);
-  src.start();
+  src.buffer = buf; src.loop = true;
+  src.connect(gain); src.start();
 }
 
-// --- Input ---
-const keys = {};
-window.addEventListener('keydown', e => {
-  keys[e.key] = true;
-  if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key))
-    e.preventDefault();
-  startAudio();
-});
-window.addEventListener('keyup', e => keys[e.key] = false);
-canvas.addEventListener('click', startAudio);
-
+// --- Collision ---
 function tryMove(dx, dy) {
   const hw = 5, hh = 5;
   const nx = player.x + dx, ny = player.y + dy;
-  const corners = [
-    [nx-hw, ny-hh], [nx+hw, ny-hh],
-    [nx-hw, ny+hh], [nx+hw, ny+hh],
-  ];
-  if (!corners.some(([cx, cy]) => isSolid(cx, cy))) {
-    player.x = nx; player.y = ny; return true;
+  const corners = [[nx-hw,ny-hh],[nx+hw,ny-hh],[nx-hw,ny+hh],[nx+hw,ny+hh]];
+  if (!corners.some(([cx,cy]) => solidAt(Math.floor(cx/T), Math.floor(cy/T)))) {
+    player.x = nx; player.y = ny; return;
   }
-  // Try sliding
-  const cx2 = [[nx-hw, player.y-hh],[nx+hw, player.y-hh],[nx-hw, player.y+hh],[nx+hw, player.y+hh]];
-  if (!cx2.some(([cx,cy]) => isSolid(cx,cy))) { player.x = nx; return true; }
-  const cy2 = [[player.x-hw, ny-hh],[player.x+hw, ny-hh],[player.x-hw, ny+hh],[player.x+hw, ny+hh]];
-  if (!cy2.some(([cx,cy]) => isSolid(cx,cy))) { player.y = ny; return true; }
-  return false;
+  // Slide x
+  const cx2 = [[nx-hw,player.y-hh],[nx+hw,player.y-hh],[nx-hw,player.y+hh],[nx+hw,player.y+hh]];
+  if (!cx2.some(([cx,cy]) => solidAt(Math.floor(cx/T), Math.floor(cy/T)))) { player.x = nx; return; }
+  // Slide y
+  const cy2 = [[player.x-hw,ny-hh],[player.x+hw,ny-hh],[player.x-hw,ny+hh],[player.x+hw,ny+hh]];
+  if (!cy2.some(([cx,cy]) => solidAt(Math.floor(cx/T), Math.floor(cy/T)))) { player.y = ny; }
 }
 
-// --- Camera ---
-function getCam() {
-  const vw = VIEW_W * T, vh = VIEW_H * T;
-  return {
-    x: Math.max(0, Math.min(MAP_W * T - vw, player.x - vw / 2)),
-    y: Math.max(0, Math.min(MAP_H * T - vh, player.y - vh / 2)),
-  };
-}
-
-// --- Main loop ---
+// --- Game loop ---
 function loop() {
   let dx = 0, dy = 0;
   if (keys['ArrowUp']    || keys['w'] || keys['W']) { dy = -player.speed; player.dir = 1; }
@@ -242,44 +228,34 @@ function loop() {
     player.frame = 0; player.frameTimer = 0;
   }
 
-  const cam = getCam();
-  const ox = -cam.x, oy = -cam.y; // world-to-screen offset
-
-  ctx.clearRect(0, 0, VIEW_W * T, VIEW_H * T);
-
-  // Visible tile range
-  const tx0 = Math.floor(cam.x / T), ty0 = Math.floor(cam.y / T);
-  const tx1 = Math.min(MAP_W, tx0 + VIEW_W + 2);
-  const ty1 = Math.min(MAP_H, ty0 + VIEW_H + 2);
+  ctx.clearRect(0, 0, MAP_W * T, MAP_H * T);
 
   // Draw ground layer
-  for (let ty = ty0; ty < ty1; ty++)
-    for (let tx = tx0; tx < tx1; tx++) {
-      const g = groundLayer[ty][tx];
-      if (g) blit(g[0], g[1], g[2], tx*T + ox, ty*T + oy);
+  for (let y = 0; y < MAP_H; y++)
+    for (let x = 0; x < MAP_W; x++) {
+      const g = ground[y][x];
+      if (g) blit(g[0], g[1], g[2], x*T, y*T);
     }
 
-  // Draw objects and player in Y-sorted order
-  // Collect visible objects + player into sorted draw list
+  // Build y-sorted draw list: decor objects + player
   const drawList = [];
-  for (let ty = ty0; ty < ty1; ty++)
-    for (let tx = tx0; tx < tx1; tx++) {
-      const o = objLayer[ty][tx];
-      if (o) drawList.push({ type: 'tile', tx, ty, o });
+  for (let y = 0; y < MAP_H; y++)
+    for (let x = 0; x < MAP_W; x++) {
+      const d = decor[y][x];
+      if (d) drawList.push({ type: 'tile', x, y, d });
     }
   drawList.push({ type: 'player' });
   drawList.sort((a, b) => {
-    const ay = a.type === 'player' ? player.y : (a.ty + 1) * T;
-    const by = b.type === 'player' ? player.y : (b.ty + 1) * T;
+    const ay = a.type === 'player' ? player.y : (a.y + 1) * T;
+    const by = b.type === 'player' ? player.y : (b.y + 1) * T;
     return ay - by;
   });
 
   for (const item of drawList) {
     if (item.type === 'player') {
-      drawPlayer(player.x + ox, player.y + oy);
+      drawPlayer(player.x, player.y);
     } else {
-      const { tx, ty, o } = item;
-      blit(o[0], o[1], o[2], tx*T + ox, ty*T + oy);
+      blit(item.d[0], item.d[1], item.d[2], item.x * T, item.y * T);
     }
   }
 
@@ -287,8 +263,7 @@ function loop() {
 }
 
 function init() {
-  buildGround();
-  buildObjects();
+  buildRoom();
   requestAnimationFrame(loop);
 }
 </script>
