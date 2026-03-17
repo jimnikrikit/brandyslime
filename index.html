@@ -108,7 +108,6 @@ const keys = {};
 window.addEventListener('keydown', e => {
   keys[e.key] = true;
   if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault();
-  startAudio();
 });
 window.addEventListener('keyup', e => { keys[e.key] = false; });
 canvas.addEventListener('click', startAudio);
@@ -125,9 +124,7 @@ fetch('assets/beat210mrgirlfriend.mp3')
 let audioReady = false;
 function startAudio() {
   if (audioReady) return;
-  audioReady = true;
 
-  // AudioContext must be created synchronously inside the gesture handler
   const ac = new AudioContext();
   const gain = ac.createGain();
   gain.gain.setValueAtTime(0, ac.currentTime);
@@ -145,8 +142,9 @@ function startAudio() {
       const src = ac.createBufferSource();
       src.buffer = buf; src.loop = true;
       src.connect(gain); src.start();
+      audioReady = true;
     })
-    .catch(() => { audioReady = false; });
+    .catch(() => {});
 }
 
 // --- Collision ---
