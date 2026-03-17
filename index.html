@@ -110,7 +110,7 @@ window.addEventListener('keydown', e => {
   if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault();
 });
 window.addEventListener('keyup', e => { keys[e.key] = false; });
-canvas.addEventListener('click', startAudio);
+canvas.addEventListener('click', () => { overlay = false; startAudio(); });
 
 // --- Audio ---
 // Pre-fetch the raw bytes early; stored so we don't re-download on retry.
@@ -163,6 +163,46 @@ function tryMove(dx, dy) {
   if (!cy2.some(([cx,cy]) => solidAt(Math.floor(cx/T), Math.floor(cy/T)))) { player.y = ny; }
 }
 
+// --- Overlay ---
+let overlay = true;
+
+function drawOverlay() {
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.fillRect(0, 0, MAP_W * T, MAP_H * T);
+
+  const bw = 176, bh = 72;
+  const bx = Math.floor((MAP_W * T - bw) / 2);
+  const by = Math.floor((MAP_H * T - bh) / 2);
+  const c = 5;
+
+  ctx.fillStyle = '#1e1008';
+  ctx.strokeStyle = '#c8943a';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(bx + c, by);
+  ctx.lineTo(bx + bw - c, by);
+  ctx.lineTo(bx + bw, by + c);
+  ctx.lineTo(bx + bw, by + bh - c);
+  ctx.lineTo(bx + bw - c, by + bh);
+  ctx.lineTo(bx + c, by + bh);
+  ctx.lineTo(bx, by + bh - c);
+  ctx.lineTo(bx, by + c);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  const cx = MAP_W * T / 2;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#f0d070';
+  ctx.font = 'bold 8px monospace';
+  ctx.fillText('Welcome to the', cx, by + 22);
+  ctx.fillText('Brandywine Diner!', cx, by + 34);
+  ctx.fillStyle = '#8a7a5a';
+  ctx.font = '7px monospace';
+  ctx.fillText('click to begin...', cx, by + 54);
+}
+
 // --- Game loop ---
 function loop() {
   let dx = 0, dy = 0;
@@ -210,6 +250,8 @@ function loop() {
       blit(item.d[0], item.d[1], item.d[2], item.x * T, item.y * T);
     }
   }
+
+  if (overlay) drawOverlay();
 
   requestAnimationFrame(loop);
 }
