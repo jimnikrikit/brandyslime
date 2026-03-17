@@ -3,6 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <title>brandyslime</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { background: #1a0e08; display: flex; justify-content: center; align-items: center; height: 100vh; }
@@ -170,7 +172,7 @@ function drawOverlay() {
   ctx.fillStyle = 'rgba(0,0,0,0.6)';
   ctx.fillRect(0, 0, MAP_W * T, MAP_H * T);
 
-  const bw = 176, bh = 72;
+  const bw = 250, bh = 80;
   const bx = Math.floor((MAP_W * T - bw) / 2);
   const by = Math.floor((MAP_H * T - bh) / 2);
   const c = 5;
@@ -195,22 +197,24 @@ function drawOverlay() {
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillStyle = '#f0d070';
-  ctx.font = 'bold 8px monospace';
+  ctx.font = '7px "Press Start 2P"';
   ctx.fillText('Welcome to the', cx, by + 22);
-  ctx.fillText('Brandywine Diner!', cx, by + 34);
+  ctx.fillText('Brandywine Diner!', cx, by + 36);
   ctx.fillStyle = '#8a7a5a';
-  ctx.font = '7px monospace';
-  ctx.fillText('click to begin...', cx, by + 54);
+  ctx.font = '5px "Press Start 2P"';
+  ctx.fillText('click to begin...', cx, by + 60);
 }
 
 // --- Game loop ---
 function loop() {
   let dx = 0, dy = 0;
-  if (keys['ArrowUp']    || keys['w'] || keys['W']) { dy = -player.speed; player.dir = 1; }
-  if (keys['ArrowDown']  || keys['s'] || keys['S']) { dy =  player.speed; player.dir = 0; }
-  if (keys['ArrowLeft']  || keys['a'] || keys['A']) { dx = -player.speed; player.dir = 2; }
-  if (keys['ArrowRight'] || keys['d'] || keys['D']) { dx =  player.speed; player.dir = 3; }
-  if (dx && dy) { dx *= 0.707; dy *= 0.707; }
+  if (!overlay) {
+    if (keys['ArrowUp']    || keys['w'] || keys['W']) { dy = -player.speed; player.dir = 1; }
+    if (keys['ArrowDown']  || keys['s'] || keys['S']) { dy =  player.speed; player.dir = 0; }
+    if (keys['ArrowLeft']  || keys['a'] || keys['A']) { dx = -player.speed; player.dir = 2; }
+    if (keys['ArrowRight'] || keys['d'] || keys['D']) { dx =  player.speed; player.dir = 3; }
+    if (dx && dy) { dx *= 0.707; dy *= 0.707; }
+  }
 
   player.moving = !!(dx || dy);
   if (player.moving) {
