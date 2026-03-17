@@ -92,11 +92,14 @@ function buildRoom() {
 }
 
 // --- Player ---
+const MOVE_SPEED = 2; // px per frame; T=16 so each tile takes 8 frames
 const player = {
+  gx: 9, gy: 12,
   x: 9 * T + 8, y: 12 * T + 8,
-  dir: 0, frame: 0, frameTimer: 0, moving: false, speed: 1.5,
+  tx: 9 * T + 8, ty: 12 * T + 8,
+  dir: 0, frame: 0, frameTimer: 0, moving: false,
 };
-const WALK_FRAMES = 4, FRAME_TICKS = 8;
+const WALK_FRAMES = 4, FRAME_TICKS = 4;
 
 function drawPlayer(sx, sy) {
   const col = player.dir;
@@ -149,21 +152,6 @@ function startAudio() {
     .catch(() => {});
 }
 
-// --- Collision ---
-function tryMove(dx, dy) {
-  const hw = 5, hh = 5;
-  const nx = player.x + dx, ny = player.y + dy;
-  const corners = [[nx-hw,ny-hh],[nx+hw,ny-hh],[nx-hw,ny+hh],[nx+hw,ny+hh]];
-  if (!corners.some(([cx,cy]) => solidAt(Math.floor(cx/T), Math.floor(cy/T)))) {
-    player.x = nx; player.y = ny; return;
-  }
-  // Slide x
-  const cx2 = [[nx-hw,player.y-hh],[nx+hw,player.y-hh],[nx-hw,player.y+hh],[nx+hw,player.y+hh]];
-  if (!cx2.some(([cx,cy]) => solidAt(Math.floor(cx/T), Math.floor(cy/T)))) { player.x = nx; return; }
-  // Slide y
-  const cy2 = [[player.x-hw,ny-hh],[player.x+hw,ny-hh],[player.x-hw,ny+hh],[player.x+hw,ny+hh]];
-  if (!cy2.some(([cx,cy]) => solidAt(Math.floor(cx/T), Math.floor(cy/T)))) { player.y = ny; }
-}
 
 // --- Overlay ---
 let overlay = true;
@@ -207,18 +195,30 @@ function drawOverlay() {
 
 // --- Game loop ---
 function loop() {
-  let dx = 0, dy = 0;
-  if (!overlay) {
-    if (keys['ArrowUp']    || keys['w'] || keys['W']) { dy = -player.speed; player.dir = 1; }
-    if (keys['ArrowDown']  || keys['s'] || keys['S']) { dy =  player.speed; player.dir = 0; }
-    if (keys['ArrowLeft']  || keys['a'] || keys['A']) { dx = -player.speed; player.dir = 2; }
-    if (keys['ArrowRight'] || keys['d'] || keys['D']) { dx =  player.speed; player.dir = 3; }
-    if (dx && dy) { dx *= 0.707; dy *= 0.707; }
+  // Accept new move only when idle and overlay is gone
+  if (!overlay && !player.moving) {
+    let ddx = 0, ddy = 0;
+    if      (keys['ArrowUp']    || keys['w'] || keys['W']) { ddy = -1; player.dir = 1; }
+    else if (keys['ArrowDown']  || keys['s'] || keys['S']) { ddy =  1; player.dir = 0; }
+    else if (keys['ArrowLeft']  || keys['a'] || keys['A']) { ddx = -1; player.dir = 2; }
+    else if (keys['ArrowRight'] || keys['d'] || keys['D']) { ddx =  1; player.dir = 3; }
+    if (ddx || ddy) {
+      const ngx = player.gx + ddx, ngy = player.gy + ddy;
+      if (!solidAt(ngx, ngy)) {
+        player.gx = ngx; player.gy = ngy;
+        player.tx = ngx * T + T / 2;
+        player.ty = ngy * T + T / 2;
+        player.moving = true;
+      }
+    }
   }
 
-  player.moving = !!(dx || dy);
+  // Animate toward target tile
   if (player.moving) {
-    tryMove(dx, dy);
+    const stepX = Math.sign(player.tx - player.x) * Math.min(MOVE_SPEED, Math.abs(player.tx - player.x));
+    const stepY = Math.sign(player.ty - player.y) * Math.min(MOVE_SPEED, Math.abs(player.ty - player.y));
+    player.x += stepX; player.y += stepY;
+    if (player.x === player.tx && player.y === player.ty) player.moving = false;
     if (++player.frameTimer >= FRAME_TICKS) { player.frame++; player.frameTimer = 0; }
   } else {
     player.frame = 0; player.frameTimer = 0;
