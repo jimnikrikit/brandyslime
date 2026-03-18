@@ -33,7 +33,7 @@ const SRCS = {
   dw:   'assets/TopDownHouse_DoorsAndWindows.png',
   si:   'assets/TopDownHouse_SmallItems.png',
   char: 'assets/ninja_blue.png',
-  sam:  'assets/samurai.png',
+  sam:  'assets/waiter.png',
 };
 for (const [key, src] of Object.entries(SRCS)) {
   const img = new Image();
@@ -110,12 +110,12 @@ function drawPlayer(sx, sy) {
 }
 
 // --- Waiter ---
-const WAITER_SPEED = 2, WAITER_MOVE_INTERVAL = 32;
+const WAITER_SPEED = 0.5; // px/frame → 32 frames per tile, no pause between tiles
 const waiter = {
   gx: 2, gy: 2,
   x: 2 * T + 8, y: 2 * T + 8,
   tx: 2 * T + 8, ty: 2 * T + 8,
-  dir: 0, frame: 0, frameTimer: 0, moving: false, moveTimer: 0,
+  dir: 0, frame: 0, frameTimer: 0, moving: false,
 };
 
 function drawWaiter(sx, sy) {
@@ -216,7 +216,7 @@ function resetGame() {
   waiter.gx = 2; waiter.gy = 2;
   waiter.x = waiter.tx = 2 * T + 8;
   waiter.y = waiter.ty = 2 * T + 8;
-  waiter.dir = 0; waiter.frame = 0; waiter.frameTimer = 0; waiter.moving = false; waiter.moveTimer = 0;
+  waiter.dir = 0; waiter.frame = 0; waiter.frameTimer = 0; waiter.moving = false;
 
   gameOver = false;
 }
@@ -264,28 +264,25 @@ function drawOverlay() {
 // --- Game loop ---
 function loop() {
   if (!overlay && !gameOver) {
-    // Waiter AI: move toward player every WAITER_MOVE_INTERVAL frames
+    // Waiter AI: pick next tile immediately upon arrival (no inter-tile pause)
     if (!waiter.moving) {
-      if (++waiter.moveTimer >= WAITER_MOVE_INTERVAL) {
-        waiter.moveTimer = 0;
-        const wdx = player.gx - waiter.gx, wdy = player.gy - waiter.gy;
-        let moved = false;
-        const attempt = (ddx, ddy, dir) => {
-          if (moved) return;
-          const ngx = waiter.gx + ddx, ngy = waiter.gy + ddy;
-          if (!solidAt(ngx, ngy)) {
-            waiter.gx = ngx; waiter.gy = ngy;
-            waiter.tx = ngx * T + T / 2; waiter.ty = ngy * T + T / 2;
-            waiter.dir = dir; waiter.moving = true; moved = true;
-          }
-        };
-        if (Math.abs(wdx) >= Math.abs(wdy)) {
-          if (wdx > 0) attempt(1, 0, 3); else if (wdx < 0) attempt(-1, 0, 2);
-          if (wdy > 0) attempt(0, 1, 0); else if (wdy < 0) attempt(0, -1, 1);
-        } else {
-          if (wdy > 0) attempt(0, 1, 0); else if (wdy < 0) attempt(0, -1, 1);
-          if (wdx > 0) attempt(1, 0, 3); else if (wdx < 0) attempt(-1, 0, 2);
+      const wdx = player.gx - waiter.gx, wdy = player.gy - waiter.gy;
+      let moved = false;
+      const attempt = (ddx, ddy, dir) => {
+        if (moved) return;
+        const ngx = waiter.gx + ddx, ngy = waiter.gy + ddy;
+        if (!solidAt(ngx, ngy)) {
+          waiter.gx = ngx; waiter.gy = ngy;
+          waiter.tx = ngx * T + T / 2; waiter.ty = ngy * T + T / 2;
+          waiter.dir = dir; waiter.moving = true; moved = true;
         }
+      };
+      if (Math.abs(wdx) >= Math.abs(wdy)) {
+        if (wdx > 0) attempt(1, 0, 3); else if (wdx < 0) attempt(-1, 0, 2);
+        if (wdy > 0) attempt(0, 1, 0); else if (wdy < 0) attempt(0, -1, 1);
+      } else {
+        if (wdy > 0) attempt(0, 1, 0); else if (wdy < 0) attempt(0, -1, 1);
+        if (wdx > 0) attempt(1, 0, 3); else if (wdx < 0) attempt(-1, 0, 2);
       }
     } else {
       const sx = Math.sign(waiter.tx - waiter.x) * Math.min(WAITER_SPEED, Math.abs(waiter.tx - waiter.x));
