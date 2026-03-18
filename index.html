@@ -33,6 +33,7 @@ const SRCS = {
   dw:   'assets/TopDownHouse_DoorsAndWindows.png',
   si:   'assets/TopDownHouse_SmallItems.png',
   char: 'assets/ninja_blue.png',
+  sam:  'assets/samurai.png',
 };
 for (const [key, src] of Object.entries(SRCS)) {
   const img = new Image();
@@ -108,6 +109,22 @@ function drawPlayer(sx, sy) {
     Math.floor(sx - T/2), Math.floor(sy - T/2), T, T);
 }
 
+// --- Waiter ---
+const WAITER_SPEED = 2, WAITER_MOVE_INTERVAL = 32;
+const waiter = {
+  gx: 2, gy: 2,
+  x: 2 * T + 8, y: 2 * T + 8,
+  tx: 2 * T + 8, ty: 2 * T + 8,
+  dir: 0, frame: 0, frameTimer: 0, moving: false, moveTimer: 0,
+};
+
+function drawWaiter(sx, sy) {
+  const col = waiter.dir;
+  const row = waiter.moving ? waiter.frame % WALK_FRAMES : 0;
+  ctx.drawImage(imgs['sam'], col*T, row*T, T, T,
+    Math.floor(sx - T/2), Math.floor(sy - T/2), T, T);
+}
+
 // --- Input ---
 const keys = {};
 window.addEventListener('keydown', e => {
@@ -115,7 +132,10 @@ window.addEventListener('keydown', e => {
   if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault();
 });
 window.addEventListener('keyup', e => { keys[e.key] = false; });
-canvas.addEventListener('click', () => { overlay = false; startAudio(); });
+canvas.addEventListener('click', () => {
+  if (gameOver) { resetGame(); return; }
+  overlay = false; startAudio();
+});
 
 // --- Audio ---
 // Pre-fetch the raw bytes early; stored so we don't re-download on retry.
@@ -152,6 +172,54 @@ function startAudio() {
     .catch(() => {});
 }
 
+
+// --- Game over ---
+let gameOver = false;
+
+function drawGameOver() {
+  ctx.fillStyle = 'rgba(0,0,0,0.65)';
+  ctx.fillRect(0, 0, MAP_W * T, MAP_H * T);
+
+  const bw = 250, bh = 90;
+  const bx = Math.floor((MAP_W * T - bw) / 2);
+  const by = Math.floor((MAP_H * T - bh) / 2);
+  const c = 5;
+
+  ctx.fillStyle = '#1e1008';
+  ctx.strokeStyle = '#c8943a';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(bx + c, by);      ctx.lineTo(bx + bw - c, by);
+  ctx.lineTo(bx + bw, by + c); ctx.lineTo(bx + bw, by + bh - c);
+  ctx.lineTo(bx + bw - c, by + bh); ctx.lineTo(bx + c, by + bh);
+  ctx.lineTo(bx, by + bh - c); ctx.lineTo(bx, by + c);
+  ctx.closePath();
+  ctx.fill(); ctx.stroke();
+
+  const cx = MAP_W * T / 2;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#f0d070';
+  ctx.font = '7px "Press Start 2P"';
+  ctx.fillText("You've been", cx, by + 20);
+  ctx.fillText('served!', cx, by + 34);
+  ctx.fillStyle = '#8a7a5a';
+  ctx.font = '5px "Press Start 2P"';
+  ctx.fillText('click to try again', cx, by + 60);
+}
+
+function resetGame() {
+  player.gx = 9; player.gy = 12;
+  player.x = player.tx = 9 * T + 8;
+  player.y = player.ty = 12 * T + 8;
+  player.dir = 0; player.frame = 0; player.frameTimer = 0; player.moving = false;
+
+  waiter.gx = 2; waiter.gy = 2;
+  waiter.x = waiter.tx = 2 * T + 8;
+  waiter.y = waiter.ty = 2 * T + 8;
+  waiter.dir = 0; waiter.frame = 0; waiter.frameTimer = 0; waiter.moving = false; waiter.moveTimer = 0;
+
+  gameOver = false;
+}
 
 // --- Overlay ---
 let overlay = true;
@@ -195,8 +263,42 @@ function drawOverlay() {
 
 // --- Game loop ---
 function loop() {
-  // Accept new move only when idle and overlay is gone
-  if (!overlay && !player.moving) {
+  if (!overlay && !gameOver) {
+    // Waiter AI: move toward player every WAITER_MOVE_INTERVAL frames
+    if (!waiter.moving) {
+      if (++waiter.moveTimer >= WAITER_MOVE_INTERVAL) {
+        waiter.moveTimer = 0;
+        const wdx = player.gx - waiter.gx, wdy = player.gy - waiter.gy;
+        let moved = false;
+        const attempt = (ddx, ddy, dir) => {
+          if (moved) return;
+          const ngx = waiter.gx + ddx, ngy = waiter.gy + ddy;
+          if (!solidAt(ngx, ngy)) {
+            waiter.gx = ngx; waiter.gy = ngy;
+            waiter.tx = ngx * T + T / 2; waiter.ty = ngy * T + T / 2;
+            waiter.dir = dir; waiter.moving = true; moved = true;
+          }
+        };
+        if (Math.abs(wdx) >= Math.abs(wdy)) {
+          if (wdx > 0) attempt(1, 0, 3); else if (wdx < 0) attempt(-1, 0, 2);
+          if (wdy > 0) attempt(0, 1, 0); else if (wdy < 0) attempt(0, -1, 1);
+        } else {
+          if (wdy > 0) attempt(0, 1, 0); else if (wdy < 0) attempt(0, -1, 1);
+          if (wdx > 0) attempt(1, 0, 3); else if (wdx < 0) attempt(-1, 0, 2);
+        }
+      }
+    } else {
+      const sx = Math.sign(waiter.tx - waiter.x) * Math.min(WAITER_SPEED, Math.abs(waiter.tx - waiter.x));
+      const sy = Math.sign(waiter.ty - waiter.y) * Math.min(WAITER_SPEED, Math.abs(waiter.ty - waiter.y));
+      waiter.x += sx; waiter.y += sy;
+      if (waiter.x === waiter.tx && waiter.y === waiter.ty) waiter.moving = false;
+      if (++waiter.frameTimer >= FRAME_TICKS) { waiter.frame++; waiter.frameTimer = 0; }
+    }
+
+    if (waiter.gx === player.gx && waiter.gy === player.gy) gameOver = true;
+  }
+
+  if (!overlay && !gameOver && !player.moving) {
     let ddx = 0, ddy = 0;
     if      (keys['ArrowUp']    || keys['w'] || keys['W']) { ddy = -1; player.dir = 1; }
     else if (keys['ArrowDown']  || keys['s'] || keys['S']) { ddy =  1; player.dir = 0; }
@@ -241,21 +343,21 @@ function loop() {
       if (d) drawList.push({ type: 'tile', x, y, d });
     }
   drawList.push({ type: 'player' });
+  drawList.push({ type: 'waiter' });
   drawList.sort((a, b) => {
-    const ay = a.type === 'player' ? player.y : (a.y + 1) * T;
-    const by = b.type === 'player' ? player.y : (b.y + 1) * T;
+    const ay = a.type === 'player' ? player.y : a.type === 'waiter' ? waiter.y : (a.y + 1) * T;
+    const by = b.type === 'player' ? player.y : b.type === 'waiter' ? waiter.y : (b.y + 1) * T;
     return ay - by;
   });
 
   for (const item of drawList) {
-    if (item.type === 'player') {
-      drawPlayer(player.x, player.y);
-    } else {
-      blit(item.d[0], item.d[1], item.d[2], item.x * T, item.y * T);
-    }
+    if (item.type === 'player') drawPlayer(player.x, player.y);
+    else if (item.type === 'waiter') drawWaiter(waiter.x, waiter.y);
+    else blit(item.d[0], item.d[1], item.d[2], item.x * T, item.y * T);
   }
 
   if (overlay) drawOverlay();
+  if (gameOver) drawGameOver();
 
   requestAnimationFrame(loop);
 }
